@@ -1,8 +1,8 @@
 <?php
 /*
- * Plugin Name: WP Data Sync SSO Client
+ * Plugin Name: WP Data Sync SSO
  * Plugin URI:  https://wpdatasync.com
- * Description: WP Data Sync SSO client for use with WP Ouath Server plugin.
+ * Description: WP Data Sync SSO for use with WP Oauth Server plugin.
  * Version:     1.0.0
  * Author:      KevinBrent
  * Author URI:  https://wpdatasync.com

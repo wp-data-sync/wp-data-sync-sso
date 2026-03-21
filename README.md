@@ -2,7 +2,11 @@
 
 This plugin relies on the [WP OAuth Server](https://wordpress.org/plugins/oauth2-provider/) plugin.
 
-## Client Setup
+## Getting Started
+
+1. The email address must match EXACTLY on the client host, API portal, and the remote website.
+
+## Client Configuration
 
 1. Add new client 
 2. Add username for title

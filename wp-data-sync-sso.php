@@ -327,3 +327,19 @@ add_action( 'init', function(): void {
 
     }
 });
+
+/**
+ * Add SSO login button shortcode
+ *
+ * @param array $attrs
+ *
+ * @return string
+ */
+add_shortcode( 'wpds_sso_login_button', function( array $attrs ): string {
+
+    $attrs = shortcode_atts( [
+        'text' => __( 'Login with SSO', 'wpds-sso' )
+    ], $attrs );
+
+    return sprintf( '<a href="%s" class="wpds-sso-login-link">%s</a>', get_sso_login_href(), $attrs['text'] );
+} );

@@ -2,7 +2,7 @@
 /*
  * Plugin Name: WP Data Sync SSO
  * Plugin URI:  https://wpdatasync.com
- * Description: WP Data Sync SSO for use with WP Oauth Server plugin.
+ * Description: WP Data Sync SSO client for use with WP Ouath Server plugin.
  * Version:     1.0.0
  * Author:      KevinBrent
  * Author URI:  https://wpdatasync.com
@@ -21,33 +21,30 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * Get the SSO Oauth server URL
+ *
+ * @return string
+ */
+function get_sso_oauth_server_url(): string {
+    return defined( 'WPDS_SSO_SERVER_URL' ) ? WPDS_SSO_SERVER_URL : get_option( 'wpds_sso_server_url' , '' );
+}
+
+/**
+ * Get the SSO Path
+ *
+ * @return string
+ */
+function get_sso_login_path(): string {
+    return defined( 'WPDS_SSO_LOGIN_PATH' ) ? WPDS_SSO_LOGIN_PATH : get_option( 'wpds_sso_login_path' , '' );
+}
+
+/**
  * Get the SSO login URL
  *
  * @return string
  */
-
-function get_sso_login_href(): string {
-
-    if ( is_user_logged_in() ) {
-        return admin_url();
-    }
-
-    $auth_query = http_build_query( [
-        'response_type' => 'code',
-        'client_id'     => get_sso_client_id(),
-        'redirect_uri'  => rest_url( '/wpds-sso/login' ),
-    ] );
-
-    return sprintf( '%s/oauth/authorize?%s', get_sso_server_url(), $auth_query );
-}
-
-/**
- * Get the SSO server URL
- *
- * @return string
- */
-function get_sso_server_url(): string {
-    return WPDS_SSO_SERVER_URL ?? untrailingslashit( get_option( 'wpds_sso_server_url' , '' ) );
+function get_sso_login_url(): string {
+    return get_sso_oauth_server_url() . get_sso_login_path();
 }
 
 /**
@@ -56,7 +53,25 @@ function get_sso_server_url(): string {
  * @return string
  */
 function get_sso_client_id(): string {
-    return WPDS_SSO_CLIENT_ID ?? get_option( 'wpds_sso_client_id' , '' );
+    return defined( 'WPDS_SSO_CLIENT_ID' ) ? WPDS_SSO_CLIENT_ID : get_option( 'wpds_sso_client_id' , '' );
+}
+
+/**
+ * Get the SSO login URL
+ *
+ * @return string
+ */
+
+function get_sso_login_href(): string {
+
+    $auth_query = http_build_query( [
+        'wpds_sso_login' => 'true',
+        'response_type'  => 'code',
+        'client_id'      => get_sso_client_id(),
+        'redirect_uri'   => rest_url( '/wpds-sso/login' ),
+    ] );
+
+    return sprintf( '%s?%s', get_sso_login_url(), $auth_query );
 }
 
 /**
@@ -65,7 +80,20 @@ function get_sso_client_id(): string {
  * @return string
  */
 function get_sso_client_secret(): string {
-    return WPDS_SSO_CLIENT_SECRET ?? get_option( 'wpds_sso_client_secret' , '' );
+    return defined( 'WPDS_SSO_CLIENT_SECRET' ) ? WPDS_SSO_CLIENT_SECRET : get_option( 'wpds_sso_client_secret' , '' );
+}
+
+/**
+ * Get the SSO redirect WP login
+ *
+ * @return string
+ */
+function get_sso_redirect_wp_login(): string {
+    if ( is_super_admin() ) {
+        return '';
+    }
+
+    return defined( 'WPDS_SSO_WP_LOGIN_REDIRECT' ) ? WPDS_SSO_WP_LOGIN_REDIRECT : '';
 }
 
 /**
@@ -90,7 +118,7 @@ add_action( 'rest_api_init', function (): void {
                 }
 
                 // Exchange code for token
-                $response = wp_remote_post( get_sso_server_url() . '/oauth/token', [
+                $response = wp_remote_post( get_sso_oauth_server_url() . '/oauth/token', [
                     'body' => [
                         'grant_type'    => 'authorization_code',
                         'client_id'     => get_sso_client_id(),
@@ -112,7 +140,7 @@ add_action( 'rest_api_init', function (): void {
                     exit;
                 }
 
-                $response = wp_remote_get( get_sso_server_url() . '/oauth/me', [
+                $response = wp_remote_get( get_sso_oauth_server_url() . '/oauth/me', [
                     'headers' => [
                         'Authorization' => 'Bearer ' . $body['access_token'],
                     ],
@@ -130,6 +158,13 @@ add_action( 'rest_api_init', function (): void {
                 if ( ! $user ) {
                     wp_safe_redirect( home_url( '?sso-login-failed=no-user' ) );
                     exit;
+                }
+
+                if ( is_multisite() ) {
+                    if ( ! is_user_member_of_blog( $user->ID, get_current_blog_id() ) ) {
+                        wp_safe_redirect( home_url( '?sso-login-failed=invalid-portal-user' ) );
+                        exit;
+                    }
                 }
 
                 wp_set_current_user( $user->ID );
@@ -162,8 +197,13 @@ add_action( 'init', function (): void {
             return;
         }
 
-        wp_safe_redirect( home_url() );
-        exit;
+        $path = get_sso_redirect_wp_login();
+
+        if ( ! empty( $path ) ) {
+            wp_safe_redirect( home_url( $path ) );
+            exit;
+        }
+
     }
 } );
 
@@ -204,15 +244,30 @@ add_filter( 'wp_data_sync_settings', function ( array $settings ): array {
     $settings['sso'] = [
         [
             'key'       => 'wpds_sso_server_url',
-            'label'     => __( 'Server URL', 'wpds-sso' ),
+            'label'     => __( 'Oauth Server URL', 'wpds-sso' ),
             'callback'  => 'input',
             'no_report' => true,
+            'info'      => __( 'URL where aouth server is hosted.', 'wpds-sso' ),
             'args'      => [
                 'sanitize_callback' => 'sanitize_url',
                 'basename'          => 'text-input',
                 'type'              => 'url',
                 'class'             => 'regular-text',
-                'placeholder'       => ''
+                'placeholder'       => 'https://example.com'
+            ]
+        ],
+        [
+            'key'       => 'wpds_sso_login_path',
+            'label'     => __( 'Logn Path', 'wpds-sso' ),
+            'callback'  => 'input',
+            'no_report' => true,
+            'info'      => __( 'Path to the logon page where ouath server is hosted.', 'wpds-sso' ),
+            'args'      => [
+                'sanitize_callback' => 'sanitize_url',
+                'basename'          => 'text-input',
+                'type'              => 'text',
+                'class'             => 'regular-text',
+                'placeholder'       => '/login/'
             ]
         ],
         [
@@ -220,6 +275,7 @@ add_filter( 'wp_data_sync_settings', function ( array $settings ): array {
             'label'     => __( 'Client ID', 'wpds-sso' ),
             'callback'  => 'input',
             'no_report' => true,
+            'info'      => __( 'Oauth server client ID.', 'wpds-sso' ),
             'args'      => [
                 'sanitize_callback' => 'sanitize_text_field',
                 'basename'          => 'text-input',
@@ -233,6 +289,7 @@ add_filter( 'wp_data_sync_settings', function ( array $settings ): array {
             'label'     => __( 'Client Secret', 'wpds-sso' ),
             'callback'  => 'input',
             'no_report' => true,
+            'info'      => __( 'Oauth server client secret.', 'wpds-sso' ),
             'args'      => [
                 'sanitize_callback' => 'sanitize_text_field',
                 'basename'          => 'text-input',
@@ -244,4 +301,29 @@ add_filter( 'wp_data_sync_settings', function ( array $settings ): array {
     ];
 
     return $settings;
+} );
+
+/**
+ * Redirect to the Oauth authorization URL.
+ *
+ * Allows for custom login pages.
+ *
+ * @return void
+ */
+add_action( 'init', function(): void {
+
+    if ( is_user_logged_in() && isset( $_GET['wpds_sso_login'] ) ) {
+
+        $auth_query = http_build_query( [
+            'response_type' => $_GET['response_type'] ?? '',
+            'client_id'     => $_GET['client_id'] ?? '',
+            'redirect_uri'  => $_GET['redirect_uri'] ?? '',
+        ] );
+
+        $url = home_url( sprintf( '/oauth/authorize?%s', $auth_query ) );
+
+        wp_safe_redirect( $url );
+        exit;
+
+    }
 });

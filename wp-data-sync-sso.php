@@ -3,7 +3,7 @@
  * Plugin Name: WP Data Sync SSO
  * Plugin URI:  https://wpdatasync.com
  * Description: WP Data Sync SSO client for use with WP Ouath Server plugin.
- * Version:     1.0.0
+ * Version:     1.0.1
  * Author:      KevinBrent
  * Author URI:  https://wpdatasync.com
  * Text Domain: wpds-sso
@@ -57,6 +57,41 @@ function get_sso_client_id(): string {
 }
 
 /**
+ * Get the SSO REST URL
+ *
+ * @return string
+ */
+function get_sso_rest_url(): string {
+
+    if ( is_multisite() ) {
+        switch_to_blog( get_main_site_id() );
+    }
+
+    $rest_url = rest_url( '/wpds-sso/login' );
+
+    if ( is_multisite() ) {
+        restore_current_blog();
+    }
+
+    return $rest_url;
+}
+
+/**
+ * Get the SSO redirect after login
+ *
+ * @return string
+ */
+function get_sso_redirect_after_login(): string {
+    $path = wp_parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH );
+
+    return base64_encode( wp_json_encode( [
+        'redirect' => $path ?: '/',
+        'nonce'    => wp_create_nonce( 'wpds-sso-login' ),
+        'time'     => time(),
+    ] ) );
+}
+
+/**
  * Get the SSO login URL
  *
  * @return string
@@ -68,7 +103,8 @@ function get_sso_login_href(): string {
         'wpds_sso_login' => 'true',
         'response_type'  => 'code',
         'client_id'      => get_sso_client_id(),
-        'redirect_uri'   => rest_url( '/wpds-sso/login' ),
+        'redirect_uri'   => get_sso_rest_url(),
+        'state'          => get_sso_redirect_after_login(),
     ] );
 
     return sprintf( '%s?%s', get_sso_login_url(), $auth_query );
@@ -110,7 +146,7 @@ add_action( 'rest_api_init', function (): void {
             'permission_callback' => '__return_true',
             'callback'            => function ( WP_REST_Request $request ): WP_REST_Response {
 
-                $code = $request->get_param( 'code' );
+                $code  = $request->get_param( 'code' );
 
                 if ( ! $code ) {
                     wp_safe_redirect( home_url( '?sso-login-failed=no-code' ) );
@@ -167,10 +203,34 @@ add_action( 'rest_api_init', function (): void {
                     }
                 }
 
-                wp_set_current_user( $user->ID );
-                wp_set_auth_cookie( $user->ID );
+                $state = $request->get_param( 'state' );
 
-                wp_safe_redirect( admin_url( 'index.php?page=wpds-dashboard' ) );
+                if ( $state ) {
+                    $decoded = json_decode( base64_decode( $state ), true );
+
+                    if (
+                        is_array( $decoded )
+                        &&
+                        ! empty( $decoded['redirect'] )
+                        &&
+                        ! empty( $decoded['nonce'] )
+                        &&
+                        wp_verify_nonce( $decoded['nonce'], 'wpds-sso-login' )
+                        &&
+                        time() - ( $decoded['time'] ?? 0 ) < 300 // 5 minutes
+                    ) {
+                        $path         = wp_parse_url( $decoded['redirect'], PHP_URL_PATH );
+                        $redirect_url = home_url( $path ?: '/' );
+
+                        wp_set_current_user( $user->ID );
+                        wp_set_auth_cookie( $user->ID );
+
+                        wp_safe_redirect( $redirect_url );
+                        exit;
+                    }
+                }
+
+                wp_safe_redirect( home_url( '?sso-login-failed=invalid-state' ) );
                 exit;
 
             }
@@ -304,8 +364,9 @@ add_filter( 'wp_data_sync_settings', function ( array $settings ): array {
 } );
 
 /**
- * Redirect to the Oauth authorization URL.
+ * Maybe Process SSO Logon
  *
+ * Redirect to the Oauth authorization URL.
  * Allows for custom login pages.
  *
  * @return void
@@ -318,6 +379,7 @@ add_action( 'init', function(): void {
             'response_type' => $_GET['response_type'] ?? '',
             'client_id'     => $_GET['client_id'] ?? '',
             'redirect_uri'  => $_GET['redirect_uri'] ?? '',
+            'state'         => $_GET['state'] ?? '',
         ] );
 
         $url = home_url( sprintf( '/oauth/authorize?%s', $auth_query ) );
@@ -326,7 +388,7 @@ add_action( 'init', function(): void {
         exit;
 
     }
-});
+}, 0 );
 
 /**
  * Add SSO login button shortcode

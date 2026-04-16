@@ -3,7 +3,7 @@
  * Plugin Name: WP Data Sync SSO
  * Plugin URI:  https://wpdatasync.com
  * Description: WP Data Sync SSO client for use with WP Ouath Server plugin.
- * Version:     1.0.2
+ * Version:     1.0.3
  * Author:      KevinBrent
  * Author URI:  https://wpdatasync.com
  * Text Domain: wpds-sso
@@ -79,13 +79,19 @@ function get_sso_rest_url(): string {
 /**
  * Get the SSO redirect after login
  *
+ * @param string $redirect
+ *
  * @return string
  */
-function get_sso_redirect_after_login(): string {
-    $path = wp_parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH );
+function get_sso_redirect_after_login( string $redirect = '' ): string {
+
+    if ( empty( $redirect ) ) {
+        $path     = wp_parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH );
+        $redirect = $path ?: '/';
+    }
 
     return base64_encode( wp_json_encode( [
-        'redirect' => $path ?: '/',
+        'redirect' => $redirect,
         'nonce'    => wp_create_nonce( 'wpds-sso-login' ),
         'time'     => time(),
     ] ) );
@@ -94,17 +100,19 @@ function get_sso_redirect_after_login(): string {
 /**
  * Get the SSO login URL
  *
+ * @param string $redirect
+ *
  * @return string
  */
 
-function get_sso_login_href(): string {
+function get_sso_login_href( string $redirect = '' ): string {
 
     $auth_query = http_build_query( [
         'wpds_sso_login' => 'true',
         'response_type'  => 'code',
         'client_id'      => get_sso_client_id(),
         'redirect_uri'   => get_sso_rest_url(),
-        'state'          => get_sso_redirect_after_login(),
+        'state'          => get_sso_redirect_after_login( $redirect ),
     ] );
 
     return sprintf( '%s?%s', get_sso_login_url(), $auth_query );
@@ -401,12 +409,12 @@ add_shortcode( 'wpds_sso_login_button', function( array $attrs ): string {
 
     $attrs = shortcode_atts( [
         'text'     => __( 'Login with SSO', 'wpds-sso' ),
-        'redirect' => get_sso_login_href()
+        'redirect' => ''
     ], $attrs );
 
     return sprintf(
         '<a href="%s" class="wpds-sso-login-link">%s</a>',
-        esc_url( $attrs['redirect'] ),
+        esc_url( get_sso_login_href( $attrs['redirect'] ) ),
         esc_html( $attrs['text'] )
     );
 } );

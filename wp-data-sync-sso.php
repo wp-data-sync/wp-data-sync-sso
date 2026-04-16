@@ -3,7 +3,7 @@
  * Plugin Name: WP Data Sync SSO
  * Plugin URI:  https://wpdatasync.com
  * Description: WP Data Sync SSO client for use with WP Ouath Server plugin.
- * Version:     1.0.1
+ * Version:     1.0.2
  * Author:      KevinBrent
  * Author URI:  https://wpdatasync.com
  * Text Domain: wpds-sso
@@ -400,8 +400,13 @@ add_action( 'init', function(): void {
 add_shortcode( 'wpds_sso_login_button', function( array $attrs ): string {
 
     $attrs = shortcode_atts( [
-        'text' => __( 'Login with SSO', 'wpds-sso' )
+        'text'     => __( 'Login with SSO', 'wpds-sso' ),
+        'redirect' => get_sso_login_href()
     ], $attrs );
 
-    return sprintf( '<a href="%s" class="wpds-sso-login-link">%s</a>', get_sso_login_href(), $attrs['text'] );
+    return sprintf(
+        '<a href="%s" class="wpds-sso-login-link">%s</a>',
+        esc_url( $attrs['redirect'] ),
+        esc_html( $attrs['text'] )
+    );
 } );
